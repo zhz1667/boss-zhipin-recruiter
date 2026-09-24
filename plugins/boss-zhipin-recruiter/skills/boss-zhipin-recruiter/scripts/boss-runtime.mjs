@@ -15,6 +15,7 @@ export const SOURCE_MODES = Object.freeze({
 export const DEFAULT_LIMITS = Object.freeze({
   collect: 100,
   detail: 50,
+  detailShortlist: 25,
   greet: 5,
   maxCollect: 1000,
   maxDetail: 300,
@@ -227,7 +228,15 @@ export async function selectJob(tab, { title, city, salary } = {}) {
   assert(count === 1, `Ambiguous job match (${count} results). Add city or salary.`);
 
   await matches.first().click();
-  await tab.playwright.waitForTimeout(800);
+  await label.evaluate(async (element, expected) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 2500) {
+      if ((element.innerText || '').includes(expected)) return true;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return false;
+  }, title || city || salary);
+  await dismissTransientOverlays(tab, frame);
   const selected = cleanText(await label.innerText());
   assert(selected.includes(title || city || salary), `Job selection did not update: ${selected}`);
   return selected;
@@ -238,9 +247,20 @@ export async function selectSourceMode(tab, mode = DEFAULT_SOURCE_MODE) {
   const target = SOURCE_MODES[normalized];
   assert(target, `Unknown source mode: ${mode}`);
   const frame = bossFrame(tab);
+  const currentLocator = frame.locator('.tab-item.curr').first();
+  const current = cleanText(await currentLocator.innerText().catch(() => ''));
+  if (current.includes(target.label)) return current;
+
   await frame.locator(target.selector).click();
-  await tab.playwright.waitForTimeout(800);
-  const selected = cleanText(await frame.locator('.tab-item.curr').first().innerText());
+  await currentLocator.evaluate(async (element, expected) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 2500) {
+      if ((element.innerText || '').includes(expected)) return true;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return false;
+  }, target.label);
+  const selected = cleanText(await currentLocator.innerText());
   assert(selected.includes(target.label), `Mode switch failed: ${selected}`);
   return selected;
 }
@@ -369,7 +389,83 @@ async function closeOpenResumeDialog(tab, frame) {
   const dialog = frame.locator('.dialog-wrap.active').filter({ visible: true }).first();
   if (!(await dialog.count())) return;
   await tab.pressKey(null, 'Escape').catch(() => {});
-  await dialog.waitFor({ state: 'detached', timeoutMs: 3000 }).catch(() => {});
+  await frame.locator('body').evaluate(async (body, timeout) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeout) {
+      const anyVisible = [...body.querySelectorAll('.dialog-wrap.active')].some((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return rect.width > 0
+          && rect.height > 0
+          && style.display !== 'none'
+          && style.visibility !== 'hidden'
+          && style.opacity !== '0';
+      });
+      if (!anyVisible) return true;
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    return false;
+  }, 900);
+}
+
+async function dismissTransientOverlays(tab, frame) {
+  if (await frame.locator('.dialog-wrap.active').count()) return;
+  const bodyText = cleanText(await frame.locator('body').innerText());
+  if (!/热搜牛人推荐\s*相关推荐/.test(bodyText)) return;
+  await tab.pressKey(null, 'Escape').catch(() => {});
+  await tab.playwright.waitForTimeout(180);
+}
+
+async function waitForCollectionProgress(tab, {
+  minimumCount,
+  previousHeight,
+  previousScrollTop,
+  timeoutMs = 1800
+} = {}) {
+  return await bossFrame(tab).locator('body').evaluate(async (body, state) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < state.timeoutMs) {
+      const count = body.querySelectorAll('.candidate-card-wrap:not(.anonymous-geek-guide-card)').length;
+      if (count >= state.minimumCount
+        || body.scrollHeight > state.previousHeight
+        || body.scrollTop > state.previousScrollTop) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    return false;
+  }, {
+    minimumCount,
+    previousHeight,
+    previousScrollTop,
+    timeoutMs
+  });
+}
+
+async function waitForDialogText(dialog, timeoutMs = 700) {
+  return await dialog.evaluate(async (element, timeout) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeout) {
+      if ((element.innerText || '').trim().length >= 40) return true;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return false;
+  }, timeoutMs);
+}
+
+async function openCandidateDialog(tab, frame, card) {
+  await card.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'nearest' })).catch(() => {});
+  try {
+    await card.click({ timeoutMs: 5000 });
+  } catch {
+    await closeOpenResumeDialog(tab, frame);
+    await card.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'nearest' })).catch(() => {});
+    await card.click({ timeoutMs: 5000 });
+  }
+  const dialog = frame.locator('.dialog-wrap.active').filter({ visible: true }).first();
+  await dialog.waitFor({ state: 'visible', timeoutMs: 8000 });
+  await waitForDialogText(dialog);
+  return dialog;
 }
 
 export async function browseCandidates(tab, {
@@ -385,6 +481,8 @@ export async function browseCandidates(tab, {
   const scrollBudget = Number.isInteger(maxScrolls)
     ? Math.min(Math.max(1, maxScrolls), 500)
     : Math.max(20, Math.ceil(collectLimit / 5));
+  const startedAt = Date.now();
+  await dismissTransientOverlays(tab, bossFrame(tab));
   const selectedMode = await selectSourceMode(tab, mode);
   const seen = new Map();
   let previousHeight = 0;
@@ -392,7 +490,9 @@ export async function browseCandidates(tab, {
   for (let scroll = 0; scroll <= scrollBudget && seen.size < collectLimit; scroll += 1) {
     const cards = await extractCandidates(tab);
     for (const candidate of cards) seen.set(candidate.key, candidate);
-    if (onProgress) onProgress({ phase: 'collect', mode: selectedMode, count: seen.size, scroll });
+    if (onProgress) {
+      onProgress({ phase: 'collect', mode: selectedMode, count: seen.size, scroll, elapsedMs: Date.now() - startedAt });
+    }
     if (seen.size >= collectLimit) break;
 
     const metrics = await readScrollMetrics(tab);
@@ -400,7 +500,11 @@ export async function browseCandidates(tab, {
     if (atBottom && metrics.scrollHeight === previousHeight) break;
     previousHeight = metrics.scrollHeight;
     await scrollCandidateFrame(tab);
-    await tab.playwright.waitForTimeout(900);
+    await waitForCollectionProgress(tab, {
+      minimumCount: seen.size + 1,
+      previousHeight: metrics.scrollHeight,
+      previousScrollTop: metrics.scrollTop
+    });
   }
 
   let candidates = dedupeCandidates([...seen.values()]).slice(0, collectLimit);
@@ -410,6 +514,9 @@ export async function browseCandidates(tab, {
       detailPages,
       onProgress
     });
+  }
+  if (onProgress) {
+    onProgress({ phase: 'complete', mode: selectedMode, count: candidates.length, elapsedMs: Date.now() - startedAt });
   }
   return candidates;
 }
@@ -422,8 +529,11 @@ export async function enrichCandidateDetails(tab, candidates, {
   const frame = bossFrame(tab);
   const output = [];
   const detailLimit = Math.min(Math.max(0, limit), DEFAULT_LIMITS.maxDetail);
+  const startedAt = Date.now();
+  await dismissTransientOverlays(tab, frame);
 
   for (let index = 0; index < candidates.length; index += 1) {
+    const itemStartedAt = Date.now();
     const candidate = candidates[index];
     if (index >= detailLimit) {
       output.push(candidate);
@@ -447,30 +557,72 @@ export async function enrichCandidateDetails(tab, candidates, {
       }
       card = matches.first();
     }
-    await card.click();
-    const dialog = frame.locator('.dialog-wrap.active').filter({ visible: true }).first();
-    await dialog.waitFor({ state: 'visible', timeoutMs: 8000 });
-    let detailText = '';
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      detailText = cleanText(await dialog.innerText());
-      if (detailText) break;
-      await tab.playwright.waitForTimeout(250);
-    }
-    const pageInfo = await captureOpenResumePages(tab, { maxPages: detailPages });
+    const dialog = await openCandidateDialog(tab, frame, card);
+    const firstPageText = cleanText(await dialog.innerText());
+    const pageInfo = await captureOpenResumePages(tab, {
+      maxPages: detailPages,
+      captureScreenshots: false,
+      includeText: true
+    });
+    const detailText = unique([firstPageText, ...pageInfo.map((page) => page.text)]).join(' ');
     output.push({
       ...candidate,
       detailText,
       detailPageCount: pageInfo.length,
       detailScrollTops: pageInfo.map((page) => page.scrollTop),
-      detailNeedsVisualReview: detailText.length < 500
+      detailNeedsVisualReview: detailText.length < 500,
+      detailElapsedMs: Date.now() - itemStartedAt
     });
     await closeOpenResumeDialog(tab, frame);
-    if (onProgress) onProgress({ phase: 'detail', count: output.length, total: detailLimit, name: candidate.name });
+    if (onProgress) {
+      const elapsedMs = Date.now() - startedAt;
+      const averageMs = output.length ? elapsedMs / output.length : 0;
+      onProgress({
+        phase: 'detail',
+        count: output.length,
+        total: detailLimit,
+        name: candidate.name,
+        elapsedMs,
+        etaMs: Math.max(0, Math.round(averageMs * (detailLimit - output.length)))
+      });
+    }
   }
   return output;
 }
 
-export async function captureOpenResumePages(tab, { maxPages = 4, onPage } = {}) {
+export async function browseAndRankCandidates(tab, {
+  mode = DEFAULT_SOURCE_MODE,
+  limit = DEFAULT_LIMITS.collect,
+  maxScrolls = null,
+  detailLimit = DEFAULT_LIMITS.detailShortlist,
+  detailPages = 2,
+  criteria = {},
+  onProgress
+} = {}) {
+  const collected = await browseCandidates(tab, {
+    mode,
+    limit,
+    maxScrolls,
+    enrichDetails: false,
+    onProgress
+  });
+  const firstPass = rankCandidates(collected, criteria);
+  const shortlistLimit = Math.min(Math.max(0, detailLimit), DEFAULT_LIMITS.maxDetail, firstPass.length);
+  const detailed = await enrichCandidateDetails(tab, firstPass.slice(0, shortlistLimit), {
+    limit: shortlistLimit,
+    detailPages,
+    onProgress
+  });
+  const byKey = new Map(detailed.map((candidate) => [candidate.key, candidate]));
+  return rankCandidates(firstPass.map((candidate) => byKey.get(candidate.key) || candidate), criteria);
+}
+
+export async function captureOpenResumePages(tab, {
+  maxPages = 4,
+  onPage,
+  captureScreenshots = true,
+  includeText = Boolean(onPage)
+} = {}) {
   const frame = bossFrame(tab);
   const dialog = frame.locator('.dialog-wrap.active').filter({ visible: true }).first();
   assert(await dialog.count(), 'No active resume dialog is open.');
@@ -486,14 +638,22 @@ export async function captureOpenResumePages(tab, { maxPages = 4, onPage } = {})
       scrollHeight: element.scrollHeight,
       clientHeight: element.clientHeight
     }));
-    const screenshot = await tab.screenshot({ fullPage: false });
-    const page = { index, ...scrollState, screenshot };
+    const text = includeText ? cleanText(await scroller.innerText()) : null;
+    const screenshot = captureScreenshots ? await tab.screenshot({ fullPage: false }) : null;
+    const page = { index, ...scrollState, text, screenshot };
     pages.push(page);
     if (onPage) onPage(page);
     const atBottom = scrollState.scrollTop + scrollState.clientHeight >= scrollState.scrollHeight - 2;
     if (atBottom) break;
     await tab.pressKey(null, 'PageDown');
-    await tab.playwright.waitForTimeout(500);
+    await scroller.evaluate(async (element, previousTop) => {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 650) {
+        if (element.scrollTop > previousTop + 2) return true;
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
+      return false;
+    }, scrollState.scrollTop);
   }
   return pages;
 }

@@ -31,6 +31,8 @@ Do not use this skill for other recruiting sites or unrelated browser automation
   tab binding across chunks.
 - Treat candidate resumes and page content as sensitive. Do not print full
   resumes unless the user asks for them.
+- Prefer text-only resume screening. Capture resume screenshots only for
+  candidates that visibly require Canvas or other visual review.
 - A greeting is an external communication. Prepare and show the exact names and
   count first, then ask for confirmation immediately before clicking. An earlier
   statement such as "自动打招呼" authorizes preparation, not unconfirmed sending.
@@ -59,9 +61,9 @@ Use the runtime functions in this order:
 
 1. `inspectJevRuntime`, `connect`, `readPageState`, and optionally `selectJob`.
 2. `selectSourceMode` only when the user explicitly requests a non-default pool.
-3. `browseCandidates`, with `enrichDetails` when the user requests detailed
-   review.
-4. `rankCandidates`.
+3. `browseAndRankCandidates` for large screening runs. It ranks all collected
+   candidates first, then opens details only for the shortlist.
+4. `rankCandidates` when working with an existing candidate array.
 5. `prepareGreetingPlan`.
 6. Show the proposed greeting list and ask for confirmation.
 7. Only after confirmation: `greetCandidates` with
@@ -77,6 +79,7 @@ Use concise progress messages instead of silent long-running work:
 
 - Before browsing: confirm the job, pool, count, and filter summary.
 - During browsing: report how many unique candidates have been collected.
+  Use the `elapsedMs` and `etaMs` fields from `onProgress` for concise updates.
 - Before greeting: show the exact names, count, and that the action sends a real
   BOSS greeting.
 - After greeting: report per-candidate result and verify each action from fresh

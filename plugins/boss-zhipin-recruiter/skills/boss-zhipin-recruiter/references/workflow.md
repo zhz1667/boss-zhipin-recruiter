@@ -70,17 +70,28 @@ Cards in the `热搜牛人推荐` section are excluded by `CARD_SELECTOR`
 greeted normally, so they must never be collected, ranked, or included in a
 greeting plan.
 
+For large runs, use the two-stage flow: collect and rank all card summaries
+first, then open full resume details only for the shortlist.
+
 ```js
-var candidates = await boss.browseCandidates(tab, {
+var ranked = await boss.browseAndRankCandidates(tab, {
   mode: 'recommended',
   limit: 100,
   maxScrolls: 40,
-  enrichDetails: true,
-  detailLimit: 50,
-  detailPages: 8,
+  detailLimit: 25,
+  detailPages: 2,
+  criteria: {
+    keywords: ['golang', 'gin', 'redis', 'postgresql'],
+    minSalary: 8,
+    maxSalary: 15
+  },
   onProgress: function (event) { nodeRepl.write(event); }
 });
 ```
+
+Set `detailLimit` to the number of finalists that need full resume review.
+Use `browseCandidates(..., { enrichDetails: true })` only when the user
+explicitly requires full details for every collected candidate.
 
 Collection deduplicates by name, salary, base information, and expectation.
 Detailed review clicks the candidate card itself to open the resume dialog,
@@ -88,6 +99,11 @@ reads `.dialog-wrap.active`, then presses `PageDown` through the
 `.resume-detail-wrap` scroll area and closes it with `Escape`. Use the card
 index captured during extraction so duplicate names or stale cards do not cause
 the wrong resume to open.
+
+The runtime uses condition-based waits instead of long fixed delays. Text-only
+detail screening does not capture screenshots, which removes the largest
+unnecessary cost when reviewing a large batch. `onProgress` reports
+`elapsedMs` and `etaMs` for the remaining detailed review.
 
 Some BOSS resumes render as a Canvas inside
 `.dialog-wrap.active iframe[src*="c-resume"]`. In that case DOM text only covers
@@ -97,6 +113,8 @@ Codex can perform visual interpretation:
 ```js
 var pages = await boss.captureOpenResumePages(tab, {
   maxPages: 8,
+  captureScreenshots: true,
+  includeText: true,
   onPage: function (page) { nodeRepl.emitImage(page.screenshot); }
 });
 ```

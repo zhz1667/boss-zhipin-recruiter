@@ -10,6 +10,7 @@ Codex plugin for operating an authenticated BOSS Zhipin recommendation page:
   including Canvas-rendered resumes
 - rank candidates against user-provided criteria
 - prepare a greeting plan and send only user-confirmed greetings
+- use adaptive waits and text-only detail screening for large candidate batches
 
 ## Requirements
 
