@@ -208,26 +208,53 @@ export async function readPageState(tab) {
   return { url: await tab.url(), ...state };
 }
 
-export async function selectJob(tab, { title, city, salary } = {}) {
-  assert(title || city || salary, 'At least one job selector is required.');
+export async function listJobs(tab, { maxItems = 200 } = {}) {
   const frame = bossFrame(tab);
   const label = frame.locator(`${JOB_SELECTOR} .ui-dropmenu-label`).first();
   await label.click();
+  const items = frame.locator(`${JOB_SELECTOR} .job-list .job-item`);
+  await items.first().waitFor({ state: 'visible', timeoutMs: 3000 });
+  const options = await items.evaluateAll((nodes) => nodes.map((element, optionIndex) => {
+    const className = String(element.className || '');
+    return {
+      optionIndex,
+      label: String(element.innerText || '').replace(/\s+/g, ' ').trim(),
+      selected: /active|selected|curr/.test(className)
+    };
+  }));
+  await tab.pressKey(null, 'Escape').catch(() => {});
+  await tab.playwright.waitForTimeout(120);
+  return options.slice(0, Math.max(1, maxItems));
+}
 
-  const search = frame.locator(`${JOB_SELECTOR} .chat-job-search`).first();
-  if (await search.count()) {
-    await search.fill(title || '');
-    await tab.playwright.waitForTimeout(400);
+export async function selectJobOption(tab, { optionIndex, label } = {}) {
+  assert(Number.isInteger(optionIndex) || cleanText(label), 'A job option index or exact label is required.');
+  const frame = bossFrame(tab);
+  const selector = `${JOB_SELECTOR} .ui-dropmenu-label`;
+  const selectedLabel = frame.locator(selector).first();
+  await selectedLabel.click();
+  const items = frame.locator(`${JOB_SELECTOR} .job-list .job-item`);
+  await items.first().waitFor({ state: 'visible', timeoutMs: 3000 });
+
+  let target;
+  if (Number.isInteger(optionIndex)) {
+    target = items.nth(optionIndex);
+    assert(await target.count(), `Job option index is out of range: ${optionIndex}`);
+  } else {
+    const expected = cleanText(label);
+    const options = await items.evaluateAll((nodes) => nodes.map((element, index) => ({
+      optionIndex: index,
+      label: String(element.innerText || '').replace(/\s+/g, ' ').trim()
+    })));
+    const matches = options.filter((option) => option.label === expected);
+    assert(matches.length > 0, `No job option matched: ${label}`);
+    assert(matches.length === 1, `Ambiguous job option (${matches.length} results): ${label}`);
+    target = items.nth(matches[0].optionIndex);
   }
 
-  const parts = [title, city, salary].filter(Boolean).map(escapeRegExp);
-  const matcher = new RegExp(parts.join('.*'), 'i');
-  const matches = frame.locator(`${JOB_SELECTOR} .job-list .job-item`).filter({ hasText: matcher });
-  const count = await matches.count();
-  assert(count > 0, `No job matched: ${[title, city, salary].filter(Boolean).join(' / ')}`);
-  assert(count === 1, `Ambiguous job match (${count} results). Add city or salary.`);
-
-  await matches.first().click();
+  const exactLabel = cleanText(await target.innerText());
+  if (label) assert(exactLabel === cleanText(label), `Selected option no longer matches: ${exactLabel}`);
+  await target.click();
   await label.evaluate(async (element, expected) => {
     const startedAt = Date.now();
     while (Date.now() - startedAt < 2500) {
@@ -235,11 +262,21 @@ export async function selectJob(tab, { title, city, salary } = {}) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     return false;
-  }, title || city || salary);
+  }, exactLabel);
   await dismissTransientOverlays(tab, frame);
-  const selected = cleanText(await label.innerText());
-  assert(selected.includes(title || city || salary), `Job selection did not update: ${selected}`);
+  const selected = cleanText(await selectedLabel.innerText());
+  assert(selected.includes(exactLabel), `Job selection did not update: ${selected}`);
   return selected;
+}
+
+export async function selectJob(tab, { title, city, salary } = {}) {
+  assert(title || city || salary, 'At least one job selector is required.');
+  const options = await listJobs(tab);
+  const parts = [title, city, salary].filter(Boolean);
+  const matches = options.filter((option) => parts.every((part) => option.label.includes(part)));
+  assert(matches.length > 0, `No job matched: ${parts.join(' / ')}`);
+  assert(matches.length === 1, `Ambiguous job match (${matches.length} results). Use the structured job picker.`);
+  return await selectJobOption(tab, matches[0]);
 }
 
 export async function selectSourceMode(tab, mode = DEFAULT_SOURCE_MODE) {

@@ -3,6 +3,7 @@
 Codex plugin for operating an authenticated BOSS Zhipin recommendation page:
 
 - select a job
+- choose the job from the live BOSS job list through a structured user question
 - browse the recommended candidate pool by default
 - exclude hot-search recommendation cards that cannot be greeted normally
 - collect and deduplicate candidate cards

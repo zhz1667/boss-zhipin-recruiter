@@ -40,19 +40,24 @@ buttons. Use card-scoped deterministic CUA actions there.
 ## Job selection
 
 The recommendation frame exposes a job selector at
-`.job-selecter-wrap .ui-dropmenu-label`. The dropdown contains
-`.chat-job-search` and `.job-list .job-item`.
+`.job-selecter-wrap .ui-dropmenu-label`. Read the live options first, then use
+the host's structured question tool (`AskUserQuestion` or
+`request_user_input`) so the user can select an actual page option. Do not ask
+the user to type the job title.
 
 ```js
-var selectedJob = await boss.selectJob(tab, {
-  title: 'AI产品与项目交付经理',
-  city: '宁波',
-  salary: '16-26K'
+var jobs = await boss.listJobs(tab);
+// Present `jobs` through the structured question tool, then use the selected item:
+var selectedJob = await boss.selectJobOption(tab, {
+  optionIndex: selectedOption.optionIndex,
+  label: selectedOption.label
 });
 ```
 
-Stop if no job matches or if multiple jobs remain ambiguous after applying the
-available title, city, and salary filters.
+`selectJobOption` verifies the exact page label before clicking. If the selected
+index and label disagree, stop instead of guessing. `selectJob` remains only as
+a compatibility fallback for an exact live-page match; it is not the preferred
+interactive flow.
 
 ## Candidate collection
 
