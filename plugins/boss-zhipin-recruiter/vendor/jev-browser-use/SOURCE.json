@@ -1,0 +1,8 @@
+{
+  "name": "jev-browser-use",
+  "version": "0.1.0",
+  "repository": "https://github.com/wy-coliney/jev-browser-use.git",
+  "revision": "cf7e76607d4ec70592b24becadd0296dcda8177a",
+  "file": "bridge.mjs",
+  "license": "MIT"
+}

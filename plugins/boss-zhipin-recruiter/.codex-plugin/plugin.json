@@ -1,0 +1,26 @@
+{
+  "name": "boss-zhipin-recruiter",
+  "version": "0.1.1",
+  "description": "Browse BOSS Zhipin jobs and candidates, filter resumes, use the bundled Jev browser runtime with external credentials, and perform confirmed greetings.",
+  "author": {
+    "name": "zhz1667"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "BOSS直聘招聘助手",
+    "shortDescription": "选择岗位、筛选候选人并按确认结果打招呼",
+    "longDescription": "通过已登录的 Codex 应用内浏览器读取 BOSS 直聘推荐牛人，按照岗位、城市、薪资、候选人数量和自定义条件筛选简历，并在用户明确确认后执行精确打招呼。插件内置 Jev 运行时源码，但 Jev 凭证始终从用户目录外部配置读取。",
+    "developerName": "zhz1667",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "使用 $boss-zhipin-recruiter 浏览 BOSS 候选人并按我的条件筛选。",
+      "使用 $boss-zhipin-recruiter 选择岗位并从最新候选人中筛选 AI 产品人才。",
+      "使用 $boss-zhipin-recruiter 准备候选名单，确认后再打招呼。"
+    ],
+    "brandColor": "#16A085"
+  }
+}

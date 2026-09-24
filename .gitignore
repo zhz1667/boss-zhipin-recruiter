@@ -1,0 +1,13 @@
+.env
+.env.*
+credentials.env
+auth.json
+cookies.json
+*.cookie
+*.key
+*.pem
+*.p12
+*.log
+node_modules/
+.DS_Store
+Thumbs.db
