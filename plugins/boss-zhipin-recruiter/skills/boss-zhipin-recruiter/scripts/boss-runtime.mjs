@@ -48,6 +48,7 @@ function parseMoney(value) {
 
 function parseYears(value) {
   const text = cleanText(value);
+  if (/应届生/.test(text)) return 0;
   const more = text.match(/(\d+)\s*年以上/);
   if (more) return Number(more[1]) + 1;
   const exact = text.match(/(\d+)\s*年/);
@@ -364,6 +365,13 @@ async function readScrollMetrics(tab) {
   }));
 }
 
+async function closeOpenResumeDialog(tab, frame) {
+  const dialog = frame.locator('.dialog-wrap.active').filter({ visible: true }).first();
+  if (!(await dialog.count())) return;
+  await tab.pressKey(null, 'Escape').catch(() => {});
+  await dialog.waitFor({ state: 'detached', timeoutMs: 3000 }).catch(() => {});
+}
+
 export async function browseCandidates(tab, {
   mode = DEFAULT_SOURCE_MODE,
   limit = DEFAULT_LIMITS.collect,
@@ -421,6 +429,7 @@ export async function enrichCandidateDetails(tab, candidates, {
       output.push(candidate);
       continue;
     }
+    await closeOpenResumeDialog(tab, frame);
     let card = null;
     if (Number.isInteger(candidate.cardIndex) && candidate.cardIndex >= 0) {
       const indexedCard = frame.locator(CARD_SELECTOR).nth(candidate.cardIndex);
@@ -455,8 +464,7 @@ export async function enrichCandidateDetails(tab, candidates, {
       detailScrollTops: pageInfo.map((page) => page.scrollTop),
       detailNeedsVisualReview: detailText.length < 500
     });
-    await tab.pressKey(null, 'Escape');
-    await dialog.waitFor({ state: 'detached', timeoutMs: 3000 }).catch(() => {});
+    await closeOpenResumeDialog(tab, frame);
     if (onProgress) onProgress({ phase: 'detail', count: output.length, total: detailLimit, name: candidate.name });
   }
   return output;
@@ -593,6 +601,7 @@ export async function runSelfTest() {
   assert(ranked[0].name === 'A', 'ranking self-test failed');
   assert(parseMoney('18-25K').max === 25, 'salary parser self-test failed');
   assert(parseYears('10年以上') >= 11, 'experience parser self-test failed');
+  assert(parseYears('23岁 27年应届生 本科') === 0, 'fresh graduate parser self-test failed');
   let guardPassed = false;
   try {
     await greetCandidates(null, ['A'], {});
@@ -605,7 +614,7 @@ export async function runSelfTest() {
   assert(jevRuntime.apiKeyInPlugin === false, 'API key isolation self-test failed');
   assert(DEFAULT_SOURCE_MODE === 'recommended', 'default source mode self-test failed');
   assert(CARD_SELECTOR.includes('anonymous-geek-guide-card'), 'hot recommendation exclusion self-test failed');
-  return { ok: true, tests: 8, jevRuntime, ranked: ranked.map(({ name, score }) => ({ name, score })) };
+  return { ok: true, tests: 9, jevRuntime, ranked: ranked.map(({ name, score }) => ({ name, score })) };
 }
 
 if (typeof process !== 'undefined' && process.argv?.[1]?.endsWith('boss-runtime.mjs')) {

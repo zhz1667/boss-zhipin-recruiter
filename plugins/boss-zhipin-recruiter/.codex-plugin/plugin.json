@@ -1,6 +1,6 @@
 {
   "name": "boss-zhipin-recruiter",
-  "version": "0.1.1+codex.20260924075942",
+  "version": "0.1.1+codex.20260924084119",
   "description": "Browse BOSS Zhipin jobs and candidates, filter resumes, use the bundled Jev browser runtime with external credentials, and perform confirmed greetings.",
   "author": {
     "name": "zhz1667"
