@@ -25,8 +25,8 @@ For a suitable named mechanical action, create a Jev session:
 
 ```js
 var outcome = await boss.runJevTask(tab, {
-  goal: 'Switch to the latest candidate pool. Stop after the selection changes.',
-  controls: [{ op: 'click', name: '最新' }],
+  goal: 'Keep the recommendation pool selected. Stop after the selection is confirmed.',
+  controls: [{ op: 'click', name: '推荐' }],
   policy: {
     click: true,
     denyNames: [/打招呼/, /删除/, /举报/]
@@ -62,9 +62,17 @@ The active pool is selected through the tabs:
 - `精选`: `.tab-item[title="精选牛人"]`
 - `最新`: `.tab-item[title="新牛人"]`
 
+Use `推荐` by default and do not switch to `精选` or `最新` unless the user
+explicitly requests that pool.
+
+Cards in the `热搜牛人推荐` section are excluded by `CARD_SELECTOR`
+(`.candidate-card-wrap:not(.anonymous-geek-guide-card)`). They cannot be
+greeted normally, so they must never be collected, ranked, or included in a
+greeting plan.
+
 ```js
 var candidates = await boss.browseCandidates(tab, {
-  mode: 'latest',
+  mode: 'recommended',
   limit: 100,
   maxScrolls: 40,
   enrichDetails: true,
@@ -75,9 +83,11 @@ var candidates = await boss.browseCandidates(tab, {
 ```
 
 Collection deduplicates by name, salary, base information, and expectation.
-Detailed review opens the candidate card, reads `.dialog-wrap.active`, then
-presses `PageDown` through the `.resume-detail-wrap` scroll area and closes it
-with `Escape`.
+Detailed review clicks the candidate card itself to open the resume dialog,
+reads `.dialog-wrap.active`, then presses `PageDown` through the
+`.resume-detail-wrap` scroll area and closes it with `Escape`. Use the card
+index captured during extraction so duplicate names or stale cards do not cause
+the wrong resume to open.
 
 Some BOSS resumes render as a Canvas inside
 `.dialog-wrap.active iframe[src*="c-resume"]`. In that case DOM text only covers

@@ -8,7 +8,7 @@ description: "Operate an authenticated BOSS Zhipin recommendation page to select
 Use this skill for BOSS Zhipin recruiting workflows that need any of:
 
 - selecting a job on the recommendation page
-- switching between 推荐, 精选, and 最新 candidate pools
+- browsing the 推荐 candidate pool by default
 - scrolling and collecting candidate cards or opening resume details
 - filtering a requested number of candidates against user criteria
 - preparing a greeting plan or greeting explicitly confirmed candidates
@@ -45,7 +45,8 @@ Collect only the parameters needed for the current run. Ask compactly for missin
 values:
 
 1. Job: job title, city, and salary if multiple jobs are present.
-2. Pool: 推荐, 精选, or 最新. Default to 最新 when the user has no preference.
+2. Pool: default to 推荐. Do not switch to 精选 or 最新 unless the user
+   explicitly asks for that pool.
 3. Scale: candidates to collect, detail pages to inspect, and greetings to send.
    Defaults are 100 collected, 50 detailed, and 5 greeting targets. Hard limits
    are 1000 collected, 300 detailed, and 20 greetings per run.
@@ -57,7 +58,7 @@ values:
 Use the runtime functions in this order:
 
 1. `inspectJevRuntime`, `connect`, `readPageState`, and optionally `selectJob`.
-2. `selectSourceMode`.
+2. `selectSourceMode` only when the user explicitly requests a non-default pool.
 3. `browseCandidates`, with `enrichDetails` when the user requests detailed
    review.
 4. `rankCandidates`.

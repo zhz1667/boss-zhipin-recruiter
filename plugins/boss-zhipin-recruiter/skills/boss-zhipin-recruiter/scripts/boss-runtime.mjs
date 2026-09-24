@@ -1,8 +1,10 @@
 export const BOSS_ORIGIN = 'https://www.zhipin.com';
 export const RECOMMEND_URL = `${BOSS_ORIGIN}/web/chat/recommend`;
 export const FRAME_SELECTOR = 'iframe[src*="/web/frame/recommend/"]';
-export const CARD_SELECTOR = '.candidate-card-wrap';
+export const CARD_SELECTOR = '.candidate-card-wrap:not(.anonymous-geek-guide-card)';
+export const HOT_CARD_SELECTOR = '.candidate-card-wrap.anonymous-geek-guide-card';
 export const JOB_SELECTOR = '.job-selecter-wrap';
+export const DEFAULT_SOURCE_MODE = 'recommended';
 
 export const SOURCE_MODES = Object.freeze({
   recommended: { label: '推荐', selector: '.tab-item[title="推荐"]' },
@@ -195,7 +197,8 @@ export async function readPageState(tab) {
     return {
       jobLabel: jobLabel?.innerText?.trim() || '',
       candidateMode: currentMode?.innerText?.trim() || '',
-      candidateCount: body.querySelectorAll('.candidate-card-wrap').length,
+      candidateCount: body.querySelectorAll('.candidate-card-wrap:not(.anonymous-geek-guide-card)').length,
+      hotCandidateCount: body.querySelectorAll('.candidate-card-wrap.anonymous-geek-guide-card').length,
       loginRequired: /扫码登录|登录后|请先登录/.test(text),
       captchaRequired: /安全验证|验证码|请完成验证|操作过于频繁/.test(text)
     };
@@ -229,7 +232,7 @@ export async function selectJob(tab, { title, city, salary } = {}) {
   return selected;
 }
 
-export async function selectSourceMode(tab, mode = 'latest') {
+export async function selectSourceMode(tab, mode = DEFAULT_SOURCE_MODE) {
   const normalized = String(mode).toLowerCase();
   const target = SOURCE_MODES[normalized];
   assert(target, `Unknown source mode: ${mode}`);
@@ -242,7 +245,7 @@ export async function selectSourceMode(tab, mode = 'latest') {
 }
 
 export async function extractCandidates(tab) {
-  const cards = await bossFrame(tab).locator(CARD_SELECTOR).evaluateAll((nodes) => nodes.map((card) => {
+  const cards = await bossFrame(tab).locator(CARD_SELECTOR).evaluateAll((nodes) => nodes.map((card, cardIndex) => {
     const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
     const text = clean(card.innerText);
     const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -256,6 +259,7 @@ export async function extractCandidates(tab) {
     const stopWords = new Set(['项目经历', '教育经历', '打招呼', '继续沟通']);
     const summary = advantageLines.filter((line) => !stopWords.has(line)).join(' ');
     return {
+      cardIndex,
       name: card.querySelector('.name')?.innerText?.trim() || '',
       salary: card.querySelector('.salary-wrap')?.innerText?.trim() || '',
       base: card.querySelector('.base-info')?.innerText?.trim() || '',
@@ -361,7 +365,7 @@ async function readScrollMetrics(tab) {
 }
 
 export async function browseCandidates(tab, {
-  mode = 'latest',
+  mode = DEFAULT_SOURCE_MODE,
   limit = DEFAULT_LIMITS.collect,
   maxScrolls = null,
   enrichDetails = false,
@@ -417,16 +421,32 @@ export async function enrichCandidateDetails(tab, candidates, {
       output.push(candidate);
       continue;
     }
-    const matches = frame.locator(CARD_SELECTOR).filter({ hasText: candidate.name });
-    const count = await matches.count();
-    if (count !== 1) {
-      output.push({ ...candidate, detailError: count === 0 ? 'candidate_not_found' : 'ambiguous_candidate' });
-      continue;
+    let card = null;
+    if (Number.isInteger(candidate.cardIndex) && candidate.cardIndex >= 0) {
+      const indexedCard = frame.locator(CARD_SELECTOR).nth(candidate.cardIndex);
+      if (await indexedCard.count()) {
+        const indexedName = cleanText(await indexedCard.locator('.name').innerText().catch(() => ''));
+        if (!candidate.name || indexedName.includes(candidate.name)) card = indexedCard;
+      }
     }
-    await matches.first().click();
-    const dialog = frame.locator('.dialog-wrap.active').first();
-    await dialog.waitFor({ state: 'visible', timeoutMs: 5000 });
-    const detailText = cleanText(await dialog.innerText());
+    if (!card) {
+      const matches = frame.locator(CARD_SELECTOR).filter({ hasText: candidate.name });
+      const count = await matches.count();
+      if (count !== 1) {
+        output.push({ ...candidate, detailError: count === 0 ? 'candidate_not_found' : 'ambiguous_candidate' });
+        continue;
+      }
+      card = matches.first();
+    }
+    await card.click();
+    const dialog = frame.locator('.dialog-wrap.active').filter({ visible: true }).first();
+    await dialog.waitFor({ state: 'visible', timeoutMs: 8000 });
+    let detailText = '';
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      detailText = cleanText(await dialog.innerText());
+      if (detailText) break;
+      await tab.playwright.waitForTimeout(250);
+    }
     const pageInfo = await captureOpenResumePages(tab, { maxPages: detailPages });
     output.push({
       ...candidate,
@@ -436,7 +456,7 @@ export async function enrichCandidateDetails(tab, candidates, {
       detailNeedsVisualReview: detailText.length < 500
     });
     await tab.pressKey(null, 'Escape');
-    await frame.locator('.dialog-wrap.active').waitFor({ state: 'detached', timeoutMs: 3000 }).catch(() => {});
+    await dialog.waitFor({ state: 'detached', timeoutMs: 3000 }).catch(() => {});
     if (onProgress) onProgress({ phase: 'detail', count: output.length, total: detailLimit, name: candidate.name });
   }
   return output;
@@ -444,7 +464,7 @@ export async function enrichCandidateDetails(tab, candidates, {
 
 export async function captureOpenResumePages(tab, { maxPages = 4, onPage } = {}) {
   const frame = bossFrame(tab);
-  const dialog = frame.locator('.dialog-wrap.active').first();
+  const dialog = frame.locator('.dialog-wrap.active').filter({ visible: true }).first();
   assert(await dialog.count(), 'No active resume dialog is open.');
   const scroller = dialog.locator('.resume-detail-wrap').first();
   const pageLimit = Math.min(Math.max(1, maxPages), 20);
@@ -583,7 +603,9 @@ export async function runSelfTest() {
   const jevRuntime = await inspectJevRuntime();
   assert(jevRuntime.bridgeSource === 'bundled', 'bundled Jev bridge self-test failed');
   assert(jevRuntime.apiKeyInPlugin === false, 'API key isolation self-test failed');
-  return { ok: true, tests: 6, jevRuntime, ranked: ranked.map(({ name, score }) => ({ name, score })) };
+  assert(DEFAULT_SOURCE_MODE === 'recommended', 'default source mode self-test failed');
+  assert(CARD_SELECTOR.includes('anonymous-geek-guide-card'), 'hot recommendation exclusion self-test failed');
+  return { ok: true, tests: 8, jevRuntime, ranked: ranked.map(({ name, score }) => ({ name, score })) };
 }
 
 if (typeof process !== 'undefined' && process.argv?.[1]?.endsWith('boss-runtime.mjs')) {

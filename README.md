@@ -3,9 +3,11 @@
 Codex plugin for operating an authenticated BOSS Zhipin recommendation page:
 
 - select a job
-- switch between recommended, featured, and latest candidate pools
+- browse the recommended candidate pool by default
+- exclude hot-search recommendation cards that cannot be greeted normally
 - collect and deduplicate candidate cards
-- inspect candidate resume details, including Canvas-rendered resumes
+- inspect candidate resume details by clicking the candidate card directly,
+  including Canvas-rendered resumes
 - rank candidates against user-provided criteria
 - prepare a greeting plan and send only user-confirmed greetings
 
